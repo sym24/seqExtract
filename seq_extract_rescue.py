@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-"""
-Required files:
-hgnc_table.tsv in directory contains this script
-"""
+
 import os
 import sys
 from pybedtools import BedTool
@@ -10,14 +7,13 @@ import pysam
 import subprocess
 import argparse
 import csv
-import rescue
 
 def get_gene_name(target_file):
     """Generate set contains gene name without duplication."""
     with open(target_file, 'r') as fi:
         gene_set = set(line.rstrip() for line in fi)
     print 'Total number of genes: ', len(gene_set)
-    return (gene_set, len(gene_set))
+    return gene_set
 
 def get_bounds(gene_set, buffer, gtf_file):
     """Go through gtf file extract the longest sequence for genes in gene_set"""
@@ -38,7 +34,6 @@ def get_bounds(gene_set, buffer, gtf_file):
                  except KeyError:
                      # add new key
                      bounds[gene] = [feature[0], startp, endp]
-
     find_num = 0
     miss_genes = []
     for gene in gene_set:
@@ -74,39 +69,39 @@ def makeBloomFilter(input_file, outdir, prefix):
         sys.exit(e)    
     return target_bf
 
-def main():
-    
+def get_parser():
     parser = argparse.ArgumentParser(description='Extract target genes and '
                                      'generate bloom filter')
-    # Optional variables
-    parser.add_argument('-o', '--outdir', dest='outdir', metavar='STR', type=str,
-                        help='Output file path. Default: [%(default)s]',
-                        default=os.getcwd())
-    parser.add_argument('-p', '--prefix', dest='prefix', metavar='STR', type=str, 
-                        help='Output file prefix. Default: [%(default)s]',
-                        default='target_genes')
-    parser.add_argument('-b', '--buffer', dest='buffer', metavar='INT', type=int,
-                        help='Size of extended buffer on both end of '
-                        'extracted sequence. Defaule: [%(default)s]', default='0')
-    parser.add_argument('-f', '--force', dest='overwrite', action='store_true',
-                        help='Overwrite existing output files')
-    parser.add_argument('-c', '--cosmic', dest='cosmic', action = 'store_true',
-                        help='Using cosmic gene file containing '
-                        'chromsome information as input gene list')
-
     # Required arguments
-    
     parser.add_argument('-g', '--genes', dest='genes', metavar='file',
                         type=argparse.FileType('r'), required=True,
-                        help='Absolute path of text file containing '
-                        'target gene names. Required.')
+                        help='absolute path of text file containing '
+                        'target gene names. [Required]')
     parser.add_argument('-t', '--gtf', dest='gtf', metavar='gtf_file',
                         type=file, required=True,
-                        help='Absolute path of gtf file. Required')
+                        help='absolute path of gtf file. [Required]')
     parser.add_argument('-r', '--ref', dest='ref', metavar='ref_genome',
                         type=file, required=True,
-                        help='Absolute path of the reference sequence file. Requried.')
+                        help='absolute path of the reference sequence file. [Requried]')
+    # Optional variables
+    parser.add_argument('-o', '--outdir', dest='outdir', metavar='STR', type=str,
+                        help='output file path. Default: [%(default)s]',
+                        default=os.getcwd())
+    parser.add_argument('-p', '--prefix', dest='prefix', metavar='STR', type=str, 
+                        help='output file prefix. Default: [%(default)s]',
+                        default='target_genes')
+    parser.add_argument('-b', '--buffer', dest='buffer', metavar='INT', type=int,
+                        help='size of extended buffer on both end of '
+                        'extracted sequence. Defaule: [%(default)s]', default='0')
+    parser.add_argument('-f', '--force', dest='overwrite', action='store_true',
+                        help='overwrite existing output files')
+    parser.add_argument('-c', '--cosmic', dest='cosmic', action = 'store_true',
+                        help='using cosmic gene file containing '
+                        'chromsome information as input gene list')
+    return parser
 
+def main():
+    parser = get_parser()
     args = parser.parse_args()
 
     # Make output file name
@@ -128,6 +123,7 @@ def main():
     print 'Output FASTA file: ', target_fa
     
     if(args.cosmic):
+        import rescue
         print 'Input genes list from cosmic gene info sheet.'
         # Extract gene name from input file 
         gene_set, chrom = rescue.get_cosmic_info(args.genes.name)
@@ -141,23 +137,24 @@ def main():
         new_bounds, failed_rescue = rescue.check_rescue_bounds\
                     (miss_genes, chrom, newdict, new_set, args.buffer, args.gtf.name)
 
-        print '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Results:'
+        print '~~~~~~Results~~~~~~'
         extracted = len(bounds) + len(new_bounds)
-        print 'Initially number of cosmic gene extracted C ==> ', len(bounds) 
-        print 'Initially number of cosmic gene unable to extract: ', len(miss_genes)
-        print 'Cosmic genes unable to be replaced with new names:\n%s'%still_miss_set
-        print '==>Number A ', len(still_miss_set)
-        print 'Number of cosmic genes successfully get new name: ', replace_num
-        print ('Cosmic genes with new names unable to extract sequence from gtf: '
-               '\n%s \nnumber B ==> %d'%(failed_rescue, len(failed_rescue)))
-        print 'Number of cosmic genes successfully rescued with new names D ==> %d/%d'%\
+        print 'initial number of cosmic genes extracted: ', len(bounds) 
+        print 'initial number of cosmic genes unable to extract: ', len(miss_genes)
+        print '...Still missing genes: '
+        print ('missing genes unable to be replaced with new names: '
+               '\n%s number: %d'%(list(still_miss_set), len(still_miss_set)))
+#        print 'number of cosmic genes successfully replaced by new names: ', replace_num
+        print ('cosmic genes with  new names failed to be extracted: '
+               '\n%s number: %d'%(failed_rescue, len(failed_rescue)))
+        print 'number of cosmic genes with new names successfully rescued: %d/%d'%\
               (len(new_bounds), len(miss_genes))
-        print 'Totall gene number : %d'%len(gene_set)
+        print '...Totall gene number : %d'%len(gene_set)
 
         rescue.extract_rescue_seq(target_fa, args.ref.name, new_bounds)
     else:
         # Extract gene name from input file 
-        gene_set, gene_num = get_gene_name(args.genes.name)
+        gene_set = get_gene_name(args.genes.name)
         # Get gene coordinates from GTF file  
         bounds, miss_genes = get_bounds(gene_set, args.buffer, args.gtf.name)
         extract_seq(target_fa, args.ref.name, bounds)
